@@ -1,0 +1,33 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# Virtual environments
+env/
+venv/
+.venv/
+
+# VS Code settings
+.vscode/
+
+# macOS
+.DS_Store
+
+# PDF, data exports, and notebook files
+*.pdf
+notebook_binder_exports/
+*.log
+
+# Test artifacts
+*.pytest_cache
+*.coverage
+*.sqlite
+coverage.xml
+
+# System files
+Thumbs.db
+ehthumbs.db
