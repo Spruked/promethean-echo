@@ -1,52 +1,50 @@
-# Prometheus NFT Minting Engine (Alpha)
 
-A secure, full-stack NFT minting system with AI-generated metadata, IPFS storage, and blockchain integration. Built for Prometheus Prime and SPRUKED AI.
+# Prometheus Prime Documentation
 
-## 🔒 Security Features
+This is the canonical README for the Prometheus Prime project. It merges the best content from previous versions and provides a clear overview for contributors and users.
 
-- **Environment-based Configuration**: No hardcoded secrets
-- **Input Validation**: Comprehensive sanitization and validation
-- **Rate Limiting**: Protection against abuse
-- **API Key Authentication**: Secure API access
-- **Security Headers**: OWASP recommended headers
-- **IP Blocking**: Automatic blocking of suspicious IPs
-- **Audit Logging**: Comprehensive request/response logging
+## Overview
+Prometheus Prime is a modular, extensible AI and blockchain platform designed for symbolic reasoning, emotional logging, and secure NFT minting. It integrates a FastAPI/Flask backend, a React dashboard frontend, and smart contract deployment tools.
 
-## � Dashboard Features
+## Key Features
+- FastAPI/Flask backend for API endpoints and business logic
+- React dashboard for real-time interaction
+- NFT minting and contract deployment (Solidity, Hardhat)
+- Emotional logging and symbolic recall modules (e.g., WhisperingArchive)
+- Secure vault integration and advanced security middleware
+- Modular architecture for easy extension
 
-- **Real-time Monitoring**: Live metrics and system status
-- **Security Audit**: Threat detection and compliance checking
-- **Configuration Management**: Runtime settings and environment variables
-- **Performance Tracking**: Resource usage and response times
-- **Alert System**: Configurable notifications and thresholds
+## Project Structure
+- `core/` — Main backend logic, including FastAPI/Flask app, symbolic modules, and runtime extensions
+- `ui/` — React frontend dashboard
+- `contracts/` — Solidity smart contracts
+- `contract_deployer/` — Hardhat and deployment scripts
+- `vault_integration/` — Vault hooks and schema
+- `security/`, `shield/` — Security, logging, and monitoring
+- `minting_engine/` — NFT minting logic
+- `ai_module/` — Metadata and AI extensions
+- `archive/` — Legacy, backup, and notes (not part of runtime)
 
-## �🚀 Quick Start
+## Getting Started
+1. **Python Environment:**
+   - Use `venv311` (Python 3.11.x) as your virtual environment.
+   - Install dependencies: `pip install -r requirements.txt`
+2. **Frontend:**
+   - Navigate to `ui/` and run `npm install` then `npm run dev`.
+3. **Backend:**
+   - Run the FastAPI/Flask app from `core/app.py` or `main.py`.
+4. **Smart Contracts:**
+   - Use Hardhat scripts in `contract_deployer/` for deployment.
 
-### 1. Security Setup
+## Contributing
+- Please review the `docs/` folder for integration guides and architecture notes.
+- Use the canonical `docs/README.md` for all future documentation updates.
 
-```bash
-# Install dependencies
-pip install -r requirements.txt
+## License
+See LICENSE file for details.
 
-# Run security setup
-python security_setup.py setup
-
-# Validate configuration
-python security_setup.py validate
-
-# Check dependencies
-python security_setup.py check
-```
-
-### 2. Start Dashboard
-
-```bash
-# Option 1: Using startup script (recommended)
-python start_dashboard.py
-
-# Option 2: Manual start
-python dashboard/app.py
-```
+---
+This README supersedes all previous versions. For historical notes, see `archive/legacy/README_*.md`.
 
 The dashboard will open automatically at http://localhost:5001
 

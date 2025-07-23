@@ -27,6 +27,91 @@ wheels/
 *.egg
 MANIFEST
 
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# pytest
+.cache
+
+# mypy
+.mypy_cache/
+.dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# VS Code
+.vscode/
+
+# Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Docker
+*.log
+docker-compose.override.yml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+
 # Virtual environments
 venv/
 env/
@@ -34,22 +119,28 @@ ENV/
 env.bak/
 venv.bak/
 
+
 # Configuration files with sensitive data
+
 config/config.json
 
 # IDE
 .vscode/
 .idea/
+
 *.swp
 *.swo
+
 
 # OS
 .DS_Store
 Thumbs.db
 
+
 # Logs
 *.log
 logs/
+
 
 # Database
 *.db
@@ -57,8 +148,10 @@ logs/
 
 # Keys and certificates
 *.key
+
 *.pem
 *.crt
+
 
 # Node.js
 node_modules/

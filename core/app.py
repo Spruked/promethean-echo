@@ -1,7 +1,42 @@
-﻿from flask import Flask, jsonify, request
+﻿
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from caleon_prime import CaleonPrime, create_caleon
 import json
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from codex_core import get_suggestion, store_memory, get_full_vault, get_insight_threads
+
+app = FastAPI()
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class MemoryEntry(BaseModel):
+    entry: str
+
+@app.get("/api/suggestion")
+def suggest():
+    return {"message": get_suggestion()}
+
+@app.post("/api/memory")
+def memory_push(entry: MemoryEntry):
+    return {"message": store_memory(entry.entry)}
+
+@app.get("/api/vault")
+def vault_log():
+    return get_full_vault()
+
+@app.get("/api/insight")
+def insight_feed():
+    return get_insight_threads()
 
 app = Flask(__name__)
 CORS(app)

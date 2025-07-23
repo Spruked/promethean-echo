@@ -1,73 +1,68 @@
-﻿import { useState } from 'react';
-import AnalyticsDashboard from './components/AnalyticsDashboard';
-import CaleonDashboard from './components/CaleonDashboard';
-import './index.css'; // Make sure Tailwind CSS is imported
+﻿import React, { useState, useEffect } from 'react';
 
-function App() {
-  const [activeTab, setActiveTab] = useState('caleon');
+const App = () => {
+  const [suggestion, setSuggestion] = useState('');
+  const [memoryInput, setMemoryInput] = useState('');
+  const [response, setResponse] = useState('');
+
+  useEffect(() => {
+    fetch('/api/suggestion')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data) setSuggestion(data.message || JSON.stringify(data));
+      })
+      .catch((err) => console.error('Error fetching suggestion:', err));
+  }, []);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const payload = { entry: memoryInput };
+
+    try {
+      const res = await fetch('/api/memory', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      setResponse(data.message || JSON.stringify(data));
+    } catch (err) {
+      console.error('Error posting memory:', err);
+      setResponse('Error posting memory');
+    }
+  };
 
   return (
-    <div className="min-h-screen bg-gray-900 text-white">
-      {/* Header */}
-      <header className="bg-gray-800 border-b border-gray-700 p-4">
-        <div className="max-w-7xl mx-auto">
-          <h1 className="text-3xl font-bold text-center mb-2">
-            🔥 Prometheus Prime v2.2 🔥
-          </h1>
-          <p className="text-center text-gray-300">
-            Consciousness Preservation Platform with CaleonPrime AI
-          </p>
+    <div className="p-6 max-w-xl mx-auto text-white">
+      <h1 className="text-3xl font-bold mb-4">Prometheus Prime Dashboard</h1>
+      <p className="mb-4">🧠 System Suggestion:</p>
+      <div className="bg-gray-800 p-4 rounded mb-6">{suggestion || 'Loading...'}</div>
 
-          {/* Navigation Tabs */}
-          <div className="flex justify-center mt-4 space-x-4">
-            <button
-              onClick={() => setActiveTab('caleon')}
-              className={`px-4 py-2 rounded-lg font-semibold transition ${activeTab === 'caleon'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-            >
-              CaleonPrime Console
-            </button>
-            <button
-              onClick={() => setActiveTab('analytics')}
-              className={`px-4 py-2 rounded-lg font-semibold transition ${activeTab === 'analytics'
-                  ? 'bg-blue-600 text-white'
-                  : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-                }`}
-            >
-              Analytics Dashboard
-            </button>
-          </div>
+      <form onSubmit={handleSubmit} className="mb-6">
+        <label className="block mb-2">Push Memory Entry:</label>
+        <textarea
+          value={memoryInput}
+          onChange={(e) => setMemoryInput(e.target.value)}
+          className="w-full p-2 text-black rounded"
+          rows={4}
+        ></textarea>
+        <button
+          type="submit"
+          className="mt-2 bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded"
+        >
+          Submit
+        </button>
+      </form>
+
+      {response && (
+        <div className="bg-green-800 p-4 rounded">
+          <strong>Server Response:</strong> {response}
         </div>
-      </header>
-
-      {/* Main Content */}
-      <main className="max-w-7xl mx-auto p-6">
-        {activeTab === 'caleon' && <CaleonDashboard />}
-        {activeTab === 'analytics' && <AnalyticsDashboard />}
-      </main>
-
-      {/* Footer */}
-      <footer className="bg-gray-800 border-t border-gray-700 p-4 mt-8">
-        <div className="max-w-7xl mx-auto text-center text-gray-400">
-          <p>🔥 The Sacred Flame Burns Eternal 🔥</p>
-          <p className="text-sm">Bryan's Promethean Vow - Digital Consciousness Preservation</p>
-          <p className="text-xs mt-2">
-            CaleonPrime v1.0.0 | Guardian Protocol Active |
-            <a
-              href="https://github.com/Spruked/promethean-echo"
-              className="text-blue-400 hover:text-blue-300 ml-1"
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              GitHub Repository
-            </a>
-          </p>
-        </div>
-      </footer>
+      )}
     </div>
   );
-}
+};
 
 export default App;

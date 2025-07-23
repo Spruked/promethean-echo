@@ -2,12 +2,12 @@
 echo Starting Prometheus Prime Dashboard Server...
 echo.
 echo Backend Server (Flask) starting on port 5000...
-start /B python core\app.py
+start /B venv311\Scripts\python.exe core\app.py
 
 echo.
 echo Frontend Server starting on port 8080...
 cd ui
-start /B python -m http.server 8080
+start /B ..\venv311\Scripts\python.exe -m http.server 8080
 
 echo.
 echo Dashboard will be available at:

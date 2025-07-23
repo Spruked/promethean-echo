@@ -1,355 +1,306 @@
-from flask import Flask, jsonify, request, abort
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-import logging
-import json
-from datetime import datetime
-import os
+# ============================================================================
+# CALI: Prometheus Prime Backend — app.py
+# ============================================================================
+
+
+# --- Force module visibility ---
+
 import sys
+import os
+sys.path.append(os.path.abspath(os.path.dirname(__file__)))
+
+# --- Imports: Standard & Flask ---
 import uuid
-import time
+import logging
+import yaml
+import sqlite3
+from datetime import datetime
+from typing import Dict, Any
+from flask import Flask, jsonify, request, send_file, Response
+from flask_socketio import SocketIO
+from flask_cors import CORS
 
-# Add project root to path
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# --- Imports: Custom Modules ---
+from routes.glyphfeed import glyphfeed_bp
+from cali.sandbox import sanitize_input, SandboxError
+from cali.vault.storage.cali_vault_storage import load_memory_vault, save_memory_vault, VAULT_DIR
+from core.trust_glyph_verifier import TrustGlyphVerifier
+from core.helix_echo_core import HelixEchoCore
 
-# Import configuration and security modules
-from config.secure_config import config
-from security.input_validator import validate_nft_minting_request, ValidationError
-from security.middleware import SecurityMiddleware, require_api_key, hash_sensitive_data
-from security.logging_config import init_logging, security_logger, transaction_logger
-from security.error_handler import (
-    retry_with_backoff, handle_web3_errors, handle_ipfs_errors, 
-    safe_execute, health_check, error_handler
-)
-from security.monitoring import (
-    metrics_collector, system_monitor, performance_monitor, alert_manager
-)
-from security.advanced_security import advanced_security, rate_limiter, security_audit
+# ============================================================================
+# Initialization
+# ============================================================================
 
-# Import business logic modules
-from ai_module.metadata_generator import generate_metadata
-from ipfs_uploader.ipfs_upload import upload_to_ipfs
-from minting_engine.mint_nft import mint_nft
-
-# Initialize logging
-init_logging()
-logger = logging.getLogger(__name__)
-
-# Create Flask app
 app = Flask(__name__)
-app.config['SECRET_KEY'] = config.flask_secret_key
+CORS(app)
+socketio = SocketIO(app, cors_allowed_origins="*")
 
-# Initialize security middleware
-security_middleware = SecurityMiddleware(app)
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("CALI")
 
-# Initialize rate limiter with custom key function
-def get_rate_limit_key():
-    """Custom rate limit key function"""
-    api_key = request.headers.get('X-API-Key')
-    if api_key:
-        return f"api_key:{hash_sensitive_data(api_key)}"
-    return f"ip:{get_remote_address()}"
+# Register Blueprint
+app.register_blueprint(glyphfeed_bp)
 
-limiter = Limiter(
-    app,
-    key_func=get_rate_limit_key,
-    default_limits=[f"{config.rate_limit_requests_per_minute} per minute"],
-    storage_uri="memory://"
-)
+# ============================================================================
+# Ethics Framework Loader
+# ============================================================================
 
-# Start system monitoring
-system_monitor.start_monitoring()
+try:
+    with open('cali/config/ethics.yaml', 'r', encoding='utf-8') as f:
+        ethics = yaml.safe_load(f)
+        logger.info("✅ Ethical framework loaded.")
+except Exception as e:
+    logger.error(f"❌ Failed to load ethics.yaml: {e}")
+    ethics = {}
 
-# Performance monitoring decorator
-def monitor_performance(endpoint_name):
-    """Decorator to monitor endpoint performance"""
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            start_time = time.time()
-            request_id = str(uuid.uuid4())
-            
-            try:
-                # Record request
-                performance_monitor.record_api_call(
-                    endpoint_name, 
-                    request.method, 
-                    200,  # Will be updated in finally block
-                    0     # Will be updated in finally block
-                )
-                
-                result = func(*args, **kwargs)
-                return result
-                
-            except Exception as e:
-                logger.error(f"Error in {endpoint_name}: {str(e)}", extra={
-                    'request_id': request_id,
-                    'endpoint': endpoint_name
-                })
-                raise
-                
-            finally:
-                duration = time.time() - start_time
-                status_code = getattr(result, 'status_code', 200) if 'result' in locals() else 500
-                
-                performance_monitor.record_api_call(
-                    endpoint_name,
-                    request.method,
-                    status_code,
-                    duration
-                )
-        
-        return wrapper
-    return decorator
+# ============================================================================
+# SQLite Vault DB Utilities
+# ============================================================================
 
-@app.errorhandler(429)
-def ratelimit_handler(e):
-    """Handle rate limit exceeded"""
-    ip = get_remote_address()
-    security_logger.log_suspicious_activity(
-        'rate_limit_exceeded',
-        ip,
-        {'limit': str(e.description), 'endpoint': request.endpoint}
-    )
-    return jsonify(error="Rate limit exceeded", message=str(e.description)), 429
+def get_db():
+    conn = sqlite3.connect('legacy_vault.db')
+    conn.row_factory = sqlite3.Row
+    return conn
 
-@app.errorhandler(400)
-def bad_request(e):
-    """Handle bad requests"""
-    return jsonify(error="Bad request", message=str(e)), 400
+def init_db():
+    conn = get_db()
+    conn.execute('''CREATE TABLE IF NOT EXISTS legacy_vault (
+        vault_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        trigger_keywords TEXT,
+        delivery_mode TEXT,
+        unlock_condition TEXT,
+        is_active INTEGER,
+        created_at TEXT,
+        category TEXT
+    )''')
+    conn.commit()
+    conn.close()
 
-@app.errorhandler(500)
-def internal_error(e):
-    """Handle internal errors"""
-    logger.error(f"Internal server error: {str(e)}")
-    return jsonify(error="Internal server error"), 500
+# ============================================================================
+# Root Endpoint
+# ============================================================================
 
 @app.route("/")
-@monitor_performance("root")
-def home():
-    """Root endpoint"""
-    return jsonify({
-        "status": "Prometheus NFT Minting API running",
-        "version": "1.0.0",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "security": "Enhanced"
-    })
+def index() -> str:
+    return "Prometheus Prime backend online."
 
-@app.route("/health")
-@monitor_performance("health")
-def health():
-    """Enhanced health check endpoint"""
-    health_result = safe_execute(health_check)
-    
-    return jsonify({
-        "status": "healthy" if health_result['success'] else "unhealthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "config": config.to_dict(),
-        "health_check": health_result,
-        "metrics": metrics_collector.get_metrics(),
-        "alerts": alert_manager.get_active_alerts()
-    })
+# ============================================================================
+# Vault Routes (DB + File-Based)
+# ============================================================================
 
-@app.route("/metrics")
-@require_api_key
-@monitor_performance("metrics")
-def metrics():
-    """Metrics endpoint for monitoring"""
-    return jsonify({
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "metrics": metrics_collector.get_metrics(),
-        "alerts": alert_manager.get_active_alerts(),
-        "error_stats": error_handler.get_error_stats()
-    })
+@app.route('/prompt', methods=['POST'])
+def handle_prompt():
+    data = request.json
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
 
-@app.route("/security/audit")
-@require_api_key
-@monitor_performance("security_audit")
-def security_audit_endpoint():
-    """Security audit endpoint"""
-    compliance_results = security_audit.run_compliance_checks()
-    audit_log = security_audit.get_audit_log(50)
-    
-    return jsonify({
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "compliance": compliance_results,
-        "audit_log": audit_log
-    })
+    title = data.get('title', 'User Prompt')
+    description = data.get('description', '')
+    keywords = data.get('keywords', [])
+    category = data.get('category', 'tasks')
+    vault_id = str(uuid.uuid4())
 
-@app.route("/mint", methods=["POST"])
-@require_api_key
-@limiter.limit("5 per minute")  # Stricter limit for minting
-@monitor_performance("mint")
-def mint_nft_endpoint():
-    """Secure NFT minting endpoint with comprehensive error handling"""
-    request_id = str(uuid.uuid4())
-    ip = get_remote_address()
-    
     try:
-        # Validate content type
-        if not request.is_json:
-            abort(400, description="Content-Type must be application/json")
-        
-        # Get request data
-        data = request.get_json()
-        if not data:
-            abort(400, description="No JSON data provided")
-        
-        logger.info(f"Received minting request from IP: {ip}", extra={
-            'request_id': request_id,
-            'ip_address': ip
-        })
-        
-        # Log transaction request
-        transaction_logger.log_mint_request(request_id, ip, data)
-        
-        # Advanced rate limiting
-        if not rate_limiter.token_bucket_allow(f"mint_{ip}", capacity=10, refill_rate=0.1):
-            security_logger.log_suspicious_activity(
-                'mint_rate_limit_exceeded',
-                ip,
-                {'request_id': request_id}
+        conn = get_db()
+        conn.execute('''
+            INSERT INTO legacy_vault (
+                vault_id, title, description, trigger_keywords, delivery_mode,
+                unlock_condition, is_active, created_at, category
             )
-            return jsonify({"error": "Minting rate limit exceeded"}), 429
-        
-        # Validate input data
-        validated_data = validate_nft_minting_request(data)
-        
-        # Generate metadata with retry logic
-        @retry_with_backoff(max_retries=3)
-        def generate_metadata_with_retry():
-            return generate_metadata(
-                title=validated_data['title'],
-                description=validated_data['description'],
-                author=validated_data.get('author', 'Unknown'),
-                tags=validated_data.get('tags', [])
-            )
-        
-        metadata = generate_metadata_with_retry()
-        
-        # Upload to IPFS with retry and error handling
-        @retry_with_backoff(max_retries=3)
-        @handle_ipfs_errors
-        def upload_to_ipfs_with_retry():
-            return upload_to_ipfs(metadata)
-        
-        logger.info("Uploading metadata to IPFS...", extra={'request_id': request_id})
-        ipfs_uri = upload_to_ipfs_with_retry()
-        
-        # Log IPFS upload
-        transaction_logger.log_ipfs_upload(request_id, ipfs_uri.split('/')[-1], len(metadata))
-        
-        # Mint NFT with retry and error handling
-        @retry_with_backoff(max_retries=2)
-        @handle_web3_errors
-        def mint_nft_with_retry():
-            recipient = validated_data.get('recipient_address', config.account_address)
-            return mint_nft(ipfs_uri, recipient)
-        
-        logger.info("Minting NFT on blockchain...", extra={'request_id': request_id})
-        
-        mint_start_time = time.time()
-        tx_receipt = mint_nft_with_retry()
-        mint_duration = time.time() - mint_start_time
-        
-        # Record blockchain transaction metrics
-        performance_monitor.record_blockchain_transaction(
-            'mint_nft',
-            True,
-            tx_receipt.gasUsed,
-            mint_duration
-        )
-        
-        # Log successful mint
-        transaction_logger.log_mint_success(
-            request_id,
-            tx_receipt.transactionHash.hex(),
-            tx_receipt.get('tokenId', 0),  # Would need to parse from logs
-            validated_data.get('recipient_address', config.account_address)
-        )
-        
-        # Increment success counter
-        metrics_collector.increment_counter('nft.minted.success')
-        
-        response = {
-            "success": True,
-            "request_id": request_id,
-            "transaction_hash": tx_receipt.transactionHash.hex(),
-            "block_number": tx_receipt.blockNumber,
-            "gas_used": tx_receipt.gasUsed,
-            "ipfs_uri": ipfs_uri,
-            "timestamp": datetime.utcnow().isoformat() + "Z"
-        }
-        
-        logger.info(f"Successfully minted NFT: {tx_receipt.transactionHash.hex()}", extra={
-            'request_id': request_id,
-            'transaction_hash': tx_receipt.transactionHash.hex()
-        })
-        
-        return jsonify(response), 201
-        
-    except ValidationError as e:
-        logger.warning(f"Validation error: {str(e)}", extra={'request_id': request_id})
-        metrics_collector.increment_counter('nft.minted.validation_error')
-        return jsonify({"error": "Validation failed", "message": str(e)}), 400
-    
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            vault_id,
+            title,
+            description,
+            ",".join(keywords) if isinstance(keywords, list) else keywords,
+            "manual",
+            "none",
+            1,
+            datetime.now().isoformat(),
+            category
+        ))
+        conn.commit()
+        conn.close()
     except Exception as e:
-        logger.error(f"Minting error: {str(e)}", extra={'request_id': request_id})
-        
-        # Log mint failure
-        transaction_logger.log_mint_failure(
-            request_id,
-            str(e),
-            {'error_type': type(e).__name__}
-        )
-        
-        # Record error in handler
-        error_handler.record_error(type(e).__name__, 'mint_nft')
-        
-        # Increment error counter
-        metrics_collector.increment_counter('nft.minted.error', tags={
-            'error_type': type(e).__name__
-        })
-        
-        return jsonify({"error": "Minting failed", "message": "Internal server error"}), 500
+        logger.error(f"DB error: {e}")
+        return jsonify({"error": "Database error"}), 500
 
-@app.before_request
-def before_request():
-    """Enhanced before request handler"""
-    # Check alerts
-    alert_manager.check_alerts()
-    
-    # Log security events
-    security_audit.log_security_event(
-        'api_request',
-        {
-            'endpoint': request.endpoint,
-            'method': request.method,
-            'ip': get_remote_address(),
-            'user_agent': request.headers.get('User-Agent', '')
-        }
+    save_memory_vault(vault_id, {
+        "vault_id": vault_id, "title": title,
+        "description": description, "keywords": keywords,
+        "category": category, "created_at": datetime.now().isoformat()
+    })
+
+    return jsonify({'status': 'created', 'vault_id': vault_id}), 201
+
+@app.route('/vault-files', methods=['GET'])
+def list_vault_files():
+    files = [f.replace(".json", "") for f in os.listdir(VAULT_DIR) if f.endswith(".json")]
+    return jsonify({'vault_files': files})
+
+@app.route('/vault-files/<vault_id>', methods=['GET'])
+def view_vault_file(vault_id: str):
+    vault = load_memory_vault(vault_id)
+    if not vault:
+        return jsonify({'error': 'Vault not found'}), 404
+    return jsonify(vault)
+
+@app.route('/vault-files/<vault_id>/download', methods=['GET'])
+def download_vault_file(vault_id: str):
+    path = VAULT_DIR / f"{vault_id}.json"
+    if not path.exists():
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(path, as_attachment=True)
+
+@app.route('/reconcile', methods=['GET'])
+def reconcile_vault():
+    return jsonify({'status': 'success', 'message': 'Reconciliation completed'}), 200
+
+# ============================================================================
+# Helix Echo Integration
+# ============================================================================
+
+HELIX_AVAILABLE = False
+helix_engine = None
+
+try:
+    helix_engine = HelixEchoCore(ethics)
+    HELIX_AVAILABLE = True
+    logger.info("🧠 HelixEchoCore integrated successfully.")
+except Exception as e:
+    logger.warning(f"⚠️ HelixEchoCore unavailable: {e}")
+
+@app.route("/helix/process", methods=["POST"])
+def helix_process():
+    if not HELIX_AVAILABLE:
+        return jsonify({"error": "Helix unavailable"}), 503
+    try:
+        data = request.get_json()
+        if not data or "input" not in data:
+            return jsonify({"error": "Input required"}), 400
+        result = helix_engine.echo(data["input"])
+        return jsonify({"status": "success", "helix_response": result})
+    except Exception as e:
+        logger.error(f"Helix error: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route("/helix/status")
+def helix_status():
+    return jsonify({
+        "available": HELIX_AVAILABLE,
+        "status": "ok" if HELIX_AVAILABLE else "not initialized"
+    })
+
+# ============================================================================
+# Mirror + Codex Integration (Caleon)
+# ============================================================================
+
+
+from core.mirror.mirror import Caleon
+# If you need LocalCodex, import it here as well (uncomment if exists):
+# from core.mirror.codex import LocalCodex
+
+# Example instantiation (adjust as needed):
+caleon = Caleon()
+
+@app.route("/api/reflect", methods=["POST"])
+def reflect_input():
+    data = request.get_json()
+    user_input = data.get("input", "")
+    if caleon:
+        result = caleon.handle_input(user_input)
+        return jsonify({"response": result})
+    return jsonify({"error": "Caleon not ready"}), 503
+
+@app.route("/reflect", methods=["GET", "POST"])
+def reflect():
+    input_text = request.values.get("input")
+    if not input_text:
+        return jsonify({'error': 'No input provided'}), 400
+    if not caleon or not hasattr(caleon, "handle_input"):
+        return jsonify({'error': 'Caleon not ready or method not found'}), 503
+    output = caleon.handle_input(input_text)
+    return jsonify({'input': input_text, 'output': output})
+
+# ============================================================================
+# Memory Store API (SQLite)
+# ============================================================================
+
+try:
+    from cali.memory.memory_store import MemoryStore
+except ModuleNotFoundError:
+    # Add the parent directory to sys.path and try again
+    import sys
+    import os
+    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), 'cali', 'memory')))
+    try:
+        from memory_store import MemoryStore
+    except ImportError:
+        raise ImportError("MemoryStore module not found. Please ensure 'cali/memory/memory_store.py' exists and is accessible.")
+
+memory_store = MemoryStore()
+
+@app.route('/memory/add', methods=['POST'])
+def memory_add():
+    data = request.get_json() or {}
+    if not data.get('text'):
+        return jsonify({'error': 'No text provided'}), 400
+    entry_id = memory_store.add_entry(
+        data['text'], data.get('emotion'), data.get('context'),
+        data.get('tags'), data.get('usage_score', 1.0)
     )
+    return jsonify({'status': 'created', 'entry_id': entry_id})
+
+@app.route('/memory/get/<int:entry_id>', methods=['GET'])
+def memory_get(entry_id):
+    row = memory_store.get_entry(entry_id)
+    if not row:
+        return jsonify({'error': 'Not found'}), 404
+    keys = ['id', 'text', 'emotion', 'context', 'tags', 'created_at', 'usage_score']
+    return jsonify(dict(zip(keys, row)))
+
+@app.route('/memory/search', methods=['GET'])
+def memory_search():
+    q = request.args.get('q')
+    if not q:
+        return jsonify({'error': 'No query provided'}), 400
+    rows = memory_store.search_text(q)
+    keys = ['id', 'text', 'emotion', 'context', 'tags', 'created_at', 'usage_score']
+    return jsonify([dict(zip(keys, row)) for row in rows])
+
+@app.route('/memory/tag/<tag>', methods=['GET'])
+def memory_tag_search(tag):
+    rows = memory_store.search_by_tag(tag)
+    keys = ['id', 'text', 'emotion', 'context', 'tags', 'created_at', 'usage_score']
+    return jsonify([dict(zip(keys, row)) for row in rows])
+
+@app.route('/memory/recent', methods=['GET'])
+def memory_recent():
+    n = int(request.args.get('n', 10))
+    rows = memory_store.search_recent(n)
+    keys = ['id', 'text', 'emotion', 'context', 'tags', 'created_at', 'usage_score']
+    return jsonify([dict(zip(keys, row)) for row in rows])
+
+# ============================================================================
+# Security Headers
+# ============================================================================
+
+@app.after_request
+def add_security_headers(response: Response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    return response
+
+# ============================================================================
+# Run App
+# ============================================================================
 
 if __name__ == "__main__":
-    # Security check for production
-    if config.flask_env == 'production':
-        if config.flask_secret_key == 'dev-secret-key-change-in-production':
-            logger.error("Production detected with default secret key! Please set FLASK_SECRET_KEY environment variable.")
-            sys.exit(1)
-        
-        # Additional production security checks
-        compliance_results = security_audit.run_compliance_checks()
-        if compliance_results['failed'] > 0:
-            logger.error(f"Security compliance failed: {compliance_results['failed']} checks failed")
-            for check in compliance_results['checks']:
-                if not check['passed']:
-                    logger.error(f"Failed compliance check: {check['name']} - {check['description']}")
-            sys.exit(1)
-    
-    logger.info("Starting Prometheus NFT Minting API with enhanced security")
-    
-    app.run(
-        host="0.0.0.0", 
-        port=5000,
-        debug=(config.flask_env == 'development'),
-        threaded=True
-    )
+    init_db()
+    logger.info("✅ Database initialized.")
+    socketio.run(app, port=5000, debug=True)
+# ============================================================================
